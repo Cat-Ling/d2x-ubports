@@ -1,4 +1,4 @@
-name: build-d2x
+name: build
 
 on:
   workflow_dispatch:
@@ -14,16 +14,29 @@ jobs:
 
       - name: clone
         run: |
-          git clone --depth 1 "https://gitlab.com/ubports/porting/community-ports/android10/samsung-galaxy-s10/samsung-exynos9820" samsung-exynos9820
+          set -euo pipefail
+
+          REPO="https://gitlab.com/ubports/porting/community-ports/android10/samsung-galaxy-s10/samsung-exynos9820"
+
+          # main repo shallow clone
+          git clone --depth 1 "$REPO" samsung-exynos9820
+
+          # replace the build folder by fetching it separately (shallow clone + move)
+          rm -rf samsung-exynos9820/build || true
+          git clone --depth 1 "$REPO" tmp-build
+          if [ -d tmp-build/build ]; then
+            mv tmp-build/build samsung-exynos9820/
+          fi
+          rm -rf tmp-build
 
       - name: runbuild
         working-directory: samsung-exynos9820
         run: |
           set -euo pipefail
-          mkdir -p bd build out
+          mkdir -p bd out
           chmod +x build.sh
           ./build.sh -b bd
-          ./build/prepare-fake-ota.sh out/device_samsung-beyond1lte.tar.xz ota
+          ./build/prepare-fake-ota.sh out/device_d2x.tar.xz ota
           ./build/system-image-from-ota.sh ota/ubuntu_command out
           ./build.sh d2x
 
