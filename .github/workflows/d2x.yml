@@ -1,0 +1,119 @@
+name: build-d2x
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      files: ${{ steps.set-files.outputs.files }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: clone
+        run: |
+          git clone --depth 1 "https://gitlab.com/ubports/porting/community-ports/android10/samsung-galaxy-s10/samsung-exynos9820" samsung-exynos9820
+
+      - name: runbuild
+        working-directory: samsung-exynos9820
+        run: |
+          set -euo pipefail
+          mkdir -p bd build out
+          chmod +x build.sh
+          ./build.sh -b bd
+          ./build/prepare-fake-ota.sh out/device_samsung-beyond1lte.tar.xz ota
+          ./build/system-image-from-ota.sh ota/ubuntu_command out
+          ./build.sh d2x
+
+      - name: installzip
+        run: sudo apt-get update && sudo apt-get install -y zip
+
+      - id: set-files
+        name: zips
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          cd samsung-exynos9820
+
+          if [ ! -d out ]; then
+            echo "files=[]" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          shopt -s nullglob
+
+          TOPFILES=()
+          for f in out/*; do
+            if [ -f "$f" ]; then
+              TOPFILES+=("$f")
+            fi
+          done
+
+          if [ ${#TOPFILES[@]} -gt 0 ]; then
+            zip -j ../artifacts/out.zip "${TOPFILES[@]}"
+          else
+            (cd .. && zip -r artifacts/out.zip samsung-exynos9820/out -i 'does-not-exist' ) || true
+          fi
+
+          for d in out/*; do
+            if [ -d "$d" ]; then
+              name=$(basename "$d")
+              (cd out && zip -r "../artifacts/${name}.zip" "$name")
+            fi
+          done
+
+          cd ..
+
+          files_arr=()
+          for z in artifacts/*.zip; do
+            [ -e "$z" ] || continue
+            files_arr+=("$(basename "$z")")
+          done
+
+          if [ ${#files_arr[@]} -eq 0 ]; then
+            echo "files=[]" >> $GITHUB_OUTPUT
+          else
+            json="["
+            first=true
+            for f in "${files_arr[@]}"; do
+              if [ "$first" = true ]; then first=false; else json+=", "; fi
+              json+="\"${f}\""
+            done
+            json+="]"
+            echo "files=$json" >> $GITHUB_OUTPUT
+          fi
+
+      - name: uploadbundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle
+          path: artifacts/*.zip
+
+  upload:
+    name: upload
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        file: ${{ fromJson(needs.build.outputs.files) }}
+    steps:
+      - name: download
+        uses: actions/download-artifact@v4
+        with:
+          name: bundle
+          path: zips
+
+      - name: setenv
+        run: |
+          fname="${{ matrix.file }}"
+          art="${fname%.*}"
+          echo "ART=$art" >> $GITHUB_ENV
+
+      - name: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ART }}
+          path: zips/${{ matrix.file }}
