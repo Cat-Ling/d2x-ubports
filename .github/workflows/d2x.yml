@@ -35,6 +35,7 @@ jobs:
           set -euo pipefail
           mkdir -p bd out
           chmod +x build.sh
+          cp deviceinfo-d2x deviceinfo
           ./build.sh -b bd
           ./build/prepare-fake-ota.sh out/device_d2x.tar.xz ota
           ./build/system-image-from-ota.sh ota/ubuntu_command out
